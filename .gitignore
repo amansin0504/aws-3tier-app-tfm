@@ -1,0 +1,19 @@
+# Local .terraform directories
+aws-3tier-app-tfm/.terraform/*
+
+# .tfstate files
+aws-3tier-app-tfm/*.tfstate
+aws-3tier-app-tfm/*.tfstate.*
+
+# Exclude all .tfvars files
+aws-3tier-app-tfm/*.tfvars
+
+# Ignore override files
+aws-3tier-app-tfm/override.tf
+aws-3tier-app-tfm/override.tf.json
+aws-3tier-app-tfm/*_override.tf
+aws-3tier-app-tfm/*_override.tf.json
+
+# Ignore CLI configuration files
+aws-3tier-app-tfm/.terraformrc
+aws-3tier-app-tfm/terraform.rc
