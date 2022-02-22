@@ -1,5 +1,5 @@
-// Configure the Google Cloud provider
-provider "google" {
- credentials = file("gcp.json")
- project     = "gcp-gcpsafecloud-nprd-40978"
+// Configure the AWS Cloud provider
+provider "aws" {
+ shared_credentials_files = ["/Users/amansin3/.aws/credentials"]
+ region = "us-west-1"
 }
