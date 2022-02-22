@@ -317,6 +317,7 @@ resource "aws_lb" "webALB" {
   name               = "webALB"
   load_balancer_type = "application"
   subnets            = [aws_subnet.websubnet1.id,aws_subnet.websubnet2.id]
+  security_groups    = [aws_security_group.allow_safe_access.id]
 }
 resource "aws_lb_listener" "webworkloadtarget" {
   load_balancer_arn = aws_lb.webALB.arn
