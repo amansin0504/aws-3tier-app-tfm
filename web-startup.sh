@@ -1,4 +1,6 @@
-sudo yum install -y epel-release nginx wget unzip lsof ipset
+#!/bin/bash
+sudo yum install -y epel-release wget unzip lsof ipset
+sudo yum install -y nginx
 
 cd /etc/nginx
 sudo mv nginx.conf nginx.conf.backup

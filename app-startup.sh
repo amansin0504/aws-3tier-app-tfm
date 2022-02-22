@@ -1,9 +1,13 @@
-sudo yum -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
-sudo yum -y install https://rpms.remirepo.net/enterprise/remi-release-7.rpm
-sudo yum -y update
-sudo yum install -y wget unzip lsof ipset httpd rsync yum-utils
-sudo yum-config-manager --enable remi-php74
-sudo yum -y install php php-cli php-fpm php-mysqlnd php-zip php-devel php-gd php-mcrypt php-mbstring php-curl php-xml php-pear php-bcmath php-json
+#!/bin/bash
+sudo yum install -y epel-release yum-utils
+sudo yum install -y http://rpms.remirepo.net/enterprise/remi-release-7.rpm
+sudo yum-config-manager --enable remi-php73
+sudo yum install -y php php-common php-opcache php-mcrypt php-cli php-gd php-curl php-mysqlnd
+sudo yum install -y wget
+sudo yum install -y unzip
+sudo yum install -y lsof
+sudo yum install -y httpd
+sudo yum install -y ipset
 sudo systemctl start httpd
 sudo systemctl enable httpd
 

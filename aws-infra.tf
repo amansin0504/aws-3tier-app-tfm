@@ -1,9 +1,16 @@
-#Create VPC network
+#Create VPC network (if you change cidr block make sure you update resolver in nginx conf file)
 resource "aws_vpc" "safe-vpc-network" {
   cidr_block    = "10.0.0.0/16"
   tags = {
     Name = "safe-vpc"
   }
+}
+resource "aws_flow_log" "cswflowlogs" {
+  log_destination      = var.csws3arn
+  log_destination_type = "s3"
+  traffic_type         = "ALL"
+  vpc_id               = aws_vpc.safe-vpc-network.id
+  log_format = "$${account-id} $${action} $${bytes} $${dstaddr} $${dstport} $${end} $${instance-id} $${interface-id} $${log-status} $${packets} $${pkt-dstaddr} $${pkt-srcaddr} $${protocol} $${srcaddr} $${srcport} $${start} $${subnet-id} $${tcp-flags} $${type} $${version} $${vpc-id}"
 }
 
 #Create subnets in VPC network
@@ -152,6 +159,52 @@ resource "aws_route_table_association" "dbRT2todbsubnet2" {
   route_table_id = aws_route_table.dbRT2.id
 }
 
+resource "aws_security_group" "allow_safe_access" {
+  name        = "allow_safe_access"
+  description = "Allow inbound traffic"
+  vpc_id      = aws_vpc.safe-vpc-network.id
+
+  ingress {
+    description      = "SSH to EC2"
+    from_port        = 22
+    to_port          = 22
+    protocol         = "tcp"
+    cidr_blocks      = ["0.0.0.0/0"]
+  }
+  ingress {
+    description      = "HTTP to EC2"
+    from_port        = 80
+    to_port          = 80
+    protocol         = "tcp"
+    cidr_blocks      = ["0.0.0.0/0"]
+  }
+  ingress {
+    description      = "HTTPS to EC2"
+    from_port        = 443
+    to_port          = 443
+    protocol         = "tcp"
+    cidr_blocks      = ["0.0.0.0/0"]
+  }
+  ingress {
+    description      = "MySQL to EC2"
+    from_port        = 3306
+    to_port          = 3306
+    protocol         = "tcp"
+    cidr_blocks      = ["0.0.0.0/0"]
+  }
+  egress {
+    description      = "Allow unfiltered outbound access"
+    from_port        = 0
+    to_port          = 0
+    protocol         = "-1"
+    cidr_blocks      = ["0.0.0.0/0"]
+    ipv6_cidr_blocks = ["::/0"]
+  }
+  tags = {
+    Name = "allow_safe_access"
+  }
+}
+
 #Create RDS SQL DB
 resource "aws_db_subnet_group" "safedbgroup" {
   depends_on = [aws_subnet.dbsubnet1,aws_subnet.dbsubnet1]
@@ -167,11 +220,12 @@ resource "aws_db_instance" "saferdsdb" {
   engine               = "mysql"
   engine_version       = "8.0.27"
   instance_class       = "db.t3.micro"
-  db_name              = "saferdsdb"
+  db_name              = var.dbname
   username             = var.user
   password             = var.password
   skip_final_snapshot  = true
   db_subnet_group_name = aws_db_subnet_group.safedbgroup.name
+  vpc_security_group_ids = [aws_security_group.allow_safe_access.id]
 }
 
 #Create App launch config, auto scale group with appLB
@@ -215,20 +269,29 @@ data "template_file" "appinit" {
     host = aws_db_instance.saferdsdb.address
   }
 }
+data "template_cloudinit_config" "appconfig" {
+  gzip          = true
+  base64_encode = true
+  part {
+    filename     = "appconfig.cfg"
+    content_type = "text/x-shellscript"
+    content      = data.template_file.appinit.rendered
+  }
+}
 resource "aws_launch_configuration" "apptemplate" {
-  name          = "apptemplate"
-  image_id      = var.images[var.region]
-  instance_type = "t2.micro"
-  key_name      = var.keyname
-  user_data     = data.template_file.appinit.rendered
+  name              = "apptemplate"
+  image_id          = var.images[var.region]
+  instance_type     = "t2.micro"
+  key_name          = var.keyname
+  user_data_base64  = data.template_cloudinit_config.appconfig.rendered
+  security_groups   = [aws_security_group.allow_safe_access.id]
 }
 
 resource "aws_autoscaling_group" "appGroup" {
-  depends_on = [aws_launch_configuration.apptemplate,aws_lb.appNLB, aws_lb_target_group.appworkloadpool]
   name                      = "appworkloads"
   max_size                  = 2
   min_size                  = 2
-  health_check_grace_period = 300
+  health_check_grace_period = 900
   health_check_type         = "ELB"
   force_delete              = true
   launch_configuration      = aws_launch_configuration.apptemplate.name
@@ -236,7 +299,68 @@ resource "aws_autoscaling_group" "appGroup" {
   target_group_arns         = [aws_lb_target_group.appworkloadpool.arn]
 }
 
-#Create Web Scale Group with webLB
 
-#If requited add Security groups
-#Enable VPC flow logs for s3 bucket
+#Create Web launch config, auto scale group with webLB
+resource "aws_lb_target_group" "webworkloadpool" {
+  name     = "webworkloadpool"
+  port     = 80
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.safe-vpc-network.id
+  health_check {
+    path = "/wp-admin"
+    port = 80
+    matcher = "300-399"  # has to be HTTP 200 or fails
+  }
+}
+resource "aws_lb" "webALB" {
+  depends_on = [aws_subnet.websubnet1,aws_subnet.websubnet1]
+  name               = "webALB"
+  load_balancer_type = "application"
+  subnets            = [aws_subnet.websubnet1.id,aws_subnet.websubnet2.id]
+}
+resource "aws_lb_listener" "webworkloadtarget" {
+  load_balancer_arn = aws_lb.webALB.arn
+  port              = "80"
+  protocol          = "HTTP"
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.webworkloadpool.arn
+  }
+}
+
+data "template_file" "webinit" {
+  template = file("web-startup.sh")
+  vars = {
+    appnlb = aws_lb.appNLB.dns_name
+  }
+}
+data "template_cloudinit_config" "webconfig" {
+  gzip          = true
+  base64_encode = true
+  part {
+    filename     = "webconfig.cfg"
+    content_type = "text/x-shellscript"
+    content      = data.template_file.webinit.rendered
+  }
+}
+resource "aws_launch_configuration" "webtemplate" {
+  name                        = "webtemplate"
+  associate_public_ip_address = true
+  image_id                    = var.images[var.region]
+  instance_type               = "t2.micro"
+  key_name                    = var.keyname
+  user_data_base64            = data.template_cloudinit_config.webconfig.rendered  
+  security_groups             = [aws_security_group.allow_safe_access.id]
+}
+
+resource "aws_autoscaling_group" "webGroup" {
+  name                      = "webworkloads"
+  max_size                  = 2
+  min_size                  = 2
+  health_check_grace_period = 900
+  health_check_type         = "ELB"
+  force_delete              = true
+  launch_configuration      = aws_launch_configuration.webtemplate.name
+  vpc_zone_identifier       = [aws_subnet.websubnet1.id,aws_subnet.websubnet2.id]
+  target_group_arns         = [aws_lb_target_group.webworkloadpool.arn]
+}

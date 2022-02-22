@@ -17,3 +17,8 @@ output "dbpassword" {
   value       = aws_db_instance.saferdsdb.password
   description = "SQL db Password"
 }
+
+output "webalb" {
+  value       = aws_lb.appNLB.dns_name
+  description = "WebLB address to access wordpress"
+}
