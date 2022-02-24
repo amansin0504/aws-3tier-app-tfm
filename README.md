@@ -7,6 +7,7 @@ Make sure you have AWS credentials configured(aws cli configure) with privileges
 
 ## Steps
 1.1 terraform plan > deploymentv1
+
 1.2 terraform apply "deploymentv1"
 
 # Terraform Output
